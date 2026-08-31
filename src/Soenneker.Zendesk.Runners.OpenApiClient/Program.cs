@@ -56,7 +56,7 @@ public sealed class Program
     /// <returns>A host builder configured with the application services and settings.</returns>
     public static IHostBuilder CreateHostBuilder(string[] args)
     {
-        DeployEnvironment envEnum = DeployEnvironment.FromName(_environment);
+        DeployEnvironment envEnum = DeployEnvironment.FromName(_environment ?? throw new InvalidOperationException("ASPNETCORE_ENVIRONMENT is not set"));
 
         LoggerConfigurationExtension.BuildBootstrapLoggerAndSetGloballySync(envEnum);
 

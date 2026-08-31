@@ -5,7 +5,6 @@ using Soenneker.Git.Util.Abstract;
 using Soenneker.Zendesk.Runners.OpenApiClient.Utils.Abstract;
 using Soenneker.Utils.Dotnet.Abstract;
 using Soenneker.Utils.Environment;
-using Soenneker.Utils.Process.Abstract;
 using System;
 using System.IO;
 using System.Linq;
@@ -22,7 +21,6 @@ using System.Collections.Generic;
 
 namespace Soenneker.Zendesk.Runners.OpenApiClient.Utils;
 
-/// <inheritdoc cref="IFileOperationsUtil"/>
 public sealed class FileOperationsUtil : IFileOperationsUtil
 {
     private readonly ILogger<FileOperationsUtil> _logger;
@@ -54,6 +52,10 @@ public sealed class FileOperationsUtil : IFileOperationsUtil
 
     public async ValueTask Process(CancellationToken cancellationToken = default)
     {
+        string gitHubToken = EnvironmentUtil.GetVariableStrict("GH__TOKEN");
+        string name = EnvironmentUtil.GetVariableStrict("GIT__NAME");
+        string email = EnvironmentUtil.GetVariableStrict("GIT__EMAIL");
+
         string gitDirectory = await _gitUtil.CloneToTempDirectory($"https://github.com/soenneker/{Constants.Library.ToLowerInvariantFast()}", cancellationToken: cancellationToken);
 
         string targetFilePath = Path.Combine(gitDirectory, "openapi.json");
@@ -91,7 +93,7 @@ public sealed class FileOperationsUtil : IFileOperationsUtil
 
         await _kiotaUtil.Generate(fixedFilePath, "ZendeskOpenApiClient", Constants.Library, gitDirectory, cancellationToken).NoSync();
 
-        await BuildAndPush(gitDirectory, cancellationToken).NoSync();
+        await BuildAndPush(gitDirectory, gitHubToken, name, email, cancellationToken).NoSync();
     }
 
     /// <summary>
@@ -103,58 +105,32 @@ public sealed class FileOperationsUtil : IFileOperationsUtil
     public async ValueTask DeleteAllExceptCsproj(string directoryPath, CancellationToken cancellationToken = default)
     {
         if (!(await _directoryUtil.Exists(directoryPath, cancellationToken)))
-        {
-            _logger.LogWarning("Directory does not exist: {DirectoryPath}", directoryPath);
-            return;
-        }
+            throw new DirectoryNotFoundException($"Generated source directory does not exist: {directoryPath}");
 
-        try
+        List<string> files = await _directoryUtil.GetFilesByExtension(directoryPath, "", true, cancellationToken);
+        foreach (string file in files)
         {
-            // Delete all files except .csproj
-            List<string> files = await _directoryUtil.GetFilesByExtension(directoryPath, "", true, cancellationToken);
-            foreach (string file in files)
+            if (!file.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
             {
-                if (!file.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
-                {
-                    try
-                    {
-                        await _fileUtil.Delete(file, ignoreMissing: true, log: false, cancellationToken);
-                        _logger.LogInformation("Deleted file: {FilePath}", file);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed to delete file: {FilePath}", file);
-                    }
-                }
-            }
-
-            // Delete all empty subdirectories
-            List<string> dirs = await _directoryUtil.GetAllDirectoriesRecursively(directoryPath, cancellationToken);
-            foreach (string dir in dirs.OrderByDescending(d => d.Length)) // Sort by depth to delete from deepest first
-            {
-                try
-                {
-                    List<string> dirFiles = await _directoryUtil.GetFilesByExtension(dir, "", false, cancellationToken);
-                    List<string> subDirs = await _directoryUtil.GetAllDirectories(dir, cancellationToken);
-                    if (dirFiles.Count == 0 && subDirs.Count == 0)
-                    {
-                        await _directoryUtil.Delete(dir, cancellationToken);
-                        _logger.LogInformation("Deleted empty directory: {DirectoryPath}", dir);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to delete directory: {DirectoryPath}", dir);
-                }
+                await _fileUtil.Delete(file, ignoreMissing: true, log: false, cancellationToken);
+                _logger.LogInformation("Deleted file: {FilePath}", file);
             }
         }
-        catch (Exception ex)
+
+        List<string> dirs = await _directoryUtil.GetAllDirectoriesRecursively(directoryPath, cancellationToken);
+        foreach (string dir in dirs.OrderByDescending(d => d.Length))
         {
-            _logger.LogError(ex, "An error occurred while cleaning the directory: {DirectoryPath}", directoryPath);
+            List<string> dirFiles = await _directoryUtil.GetFilesByExtension(dir, "", false, cancellationToken);
+            List<string> subDirs = await _directoryUtil.GetAllDirectories(dir, cancellationToken);
+            if (dirFiles.Count == 0 && subDirs.Count == 0)
+            {
+                await _directoryUtil.Delete(dir, cancellationToken);
+                _logger.LogInformation("Deleted empty directory: {DirectoryPath}", dir);
+            }
         }
     }
 
-    private async ValueTask BuildAndPush(string gitDirectory, CancellationToken cancellationToken)
+    private async ValueTask BuildAndPush(string gitDirectory, string gitHubToken, string name, string email, CancellationToken cancellationToken)
     {
         string projFilePath = Path.Combine(gitDirectory, "src", Constants.Library, $"{Constants.Library}.csproj");
 
@@ -163,14 +139,7 @@ public sealed class FileOperationsUtil : IFileOperationsUtil
         bool successful = await _dotnetUtil.Build(projFilePath, true, "Release", false, cancellationToken: cancellationToken);
 
         if (!successful)
-        {
-            _logger.LogError("Build was not successful, exiting...");
-            return;
-        }
-
-        string gitHubToken = EnvironmentUtil.GetVariableStrict("GH__TOKEN");
-        string name = EnvironmentUtil.GetVariableStrict("GIT__NAME");
-        string email = EnvironmentUtil.GetVariableStrict("GIT__EMAIL");
+            throw new InvalidOperationException("The generated Zendesk OpenAPI client did not build successfully.");
 
         await _gitUtil.CommitAndPush(gitDirectory, "Automated update", gitHubToken, name, email, cancellationToken);
     }

@@ -4,12 +4,12 @@ using System.Threading.Tasks;
 namespace Soenneker.Zendesk.Runners.OpenApiClient.Utils.Abstract;
 
 /// <summary>
-/// Provides file cleanup and filesystem operations used by the generated-client update workflow.
+/// Regenerates, validates, and publishes the Zendesk OpenAPI client.
 /// </summary>
 public interface IFileOperationsUtil
 {
     /// <summary>
-    /// Runs the OpenAPI client regeneration workflow, including cleanup and post-processing.
+    /// Runs the client regeneration and publishing workflow.
     /// </summary>
     /// <param name="cancellationToken">Token used to cancel the operation.</param>
     /// <returns>A task that completes when the full processing workflow has finished.</returns>
