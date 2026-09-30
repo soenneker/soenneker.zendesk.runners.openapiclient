@@ -144,6 +144,6 @@ public sealed class FileOperationsUtil : IFileOperationsUtil
         if (!successful)
             throw new InvalidOperationException("The generated Zendesk OpenAPI client did not build successfully.");
 
-        await _gitUtil.CommitAndPush(gitDirectory, await _gitUtil.GetUpdateCommitMessage(gitDirectory, $"Update {Constants.Library}", cancellationToken), gitHubToken, name, email, cancellationToken);
+        await _gitUtil.CommitAndPush(gitDirectory, $"Update {Constants.Library}", gitHubToken, name, email, cancellationToken);
     }
 }
